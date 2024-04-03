@@ -145,13 +145,16 @@ def create_test_preview(frame_number):
     )
 
 
-def run():
-    pre_check()
-    limit_resources()
-    if args.source_img:
-        args.cli_mode = True
-        start()
-        quit()
+#def run():
+#    pre_check()
+#    limit_resources()
+#    if args.source_img:
+#        args.cli_mode = True
+#        start()
+#        quit()
+def pre_check():
+    # Add your pre-check logic here
+    pass
 
     window = ui.init(
         {
