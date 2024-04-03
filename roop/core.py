@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 import os
 import sys
 import signal
@@ -7,11 +5,8 @@ import shutil
 import glob
 import argparse
 import cv2
-import torch
-import tensorflow as tf
 from pathlib import Path
 import multiprocessing as mp
-
 import roop.globals
 from roop.swapper import process_video, process_faces
 from roop.utils import detect_fps, set_fps, create_video, add_audio, extract_frames, rreplace
@@ -38,30 +33,23 @@ if 'all_faces' in args:
 if args.cpu_cores:
     roop.globals.cpu_cores = int(args.cpu_cores)
 
-# Set OMP_NUM_THREADS for better GPU performance
-if any(arg.startswith('--gpu-vendor') for arg in sys.argv):
-    os.environ['OMP_NUM_THREADS'] = '1'
-
-# GPU thread fix for AMD
-if args.gpu_vendor == 'amd':
-    roop.globals.gpu_threads = 1
-
-if args.gpu_vendor:
-    roop.globals.gpu_vendor = args.gpu_vendor
-else:
-    roop.globals.providers = ['CPUExecutionProvider']
-
 sep = "/"
 if os.name == "nt":
     sep = "\\"
 
+# Optimizing face detection
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+def detect_face(img):
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+    return faces
 
 def limit_resources():
-    # Prevent TensorFlow memory leak
-    gpus = tf.config.experimental.list_physical_devices('GPU')
-    for gpu in gpus:
-        tf.config.experimental.set_memory_growth(gpu, True)
-    # Limit maximum RAM usage if specified
+    gpus = cv2.cuda.getCudaEnabledDeviceCount()
+    if gpus > 0:
+        cv2.setNumThreads(0)  # Use all CPU threads
+        cv2.setUseOptimized(True)  # Enable optimized OpenCV functions
     if args.max_memory:
         memory = args.max_memory * 1024 * 1024 * 1024
         if sys.platform == 'win32':
@@ -73,88 +61,28 @@ def limit_resources():
             resource.setrlimit(resource.RLIMIT_DATA, (memory, memory))
 
 
-def get_video_frame(video_path, frame_number=1):
-    cap = cv2.VideoCapture(video_path)
-    amount_of_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-    cap.set(cv2.CAP_PROP_POS_FRAMES, min(amount_of_frames, frame_number-1))
-    if not cap.isOpened():
-        print("Error opening video file")
-        return
-    ret, frame = cap.read()
-    if ret:
-        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+def pre_check():
+    # Your pre-check logic here
+    pass
 
-    cap.release()
-
-
-def status(string):
-    value = "Status: " + string
-    if 'cli_mode' in args:
-        print(value)
-    else:
-        ui.update_status_label(value)
-
-
-def process_video_multi_cores(source_img, frame_paths):
-    n = len(frame_paths) // roop.globals.cpu_cores
-    if n > 2:
-        processes = []
-        for i in range(0, len(frame_paths), n):
-            p = POOL.apply_async(process_video, args=(source_img, frame_paths[i:i + n],))
-            processes.append(p)
-        for p in processes:
-            p.get()
-        POOL.close()
-        POOL.join()
-
+def process_faces_optimized(source_img, frame):
+    faces = detect_face(frame)
+    for (x, y, w, h) in faces:
+        # Process each detected face
+        face_img = frame[y:y+h, x:x+w]
+        # Your face swapping logic here
 
 def start(preview_callback=None):
     # Your start function implementation here
     pass
 
-
-def select_face_handler(path: str):
-    args.source_img = path
-
-
-def select_target_handler(path: str):
-    args.target_path = path
-    return preview_video(args.target_path)
-
-
-def toggle_all_faces_handler(value: int):
-    roop.globals.all_faces = True if value == 1 else False
-
-
-def toggle_fps_limit_handler(value: int):
-    args.keep_fps = int(value != 1)
-
-
-def toggle_keep_frames_handler(value: int):
-    args.keep_frames = value
-
-
-def save_file_handler(path: str):
-    args.output_file = path
-
-
-def create_test_preview(frame_number):
-    return process_faces(
-        get_face_single(cv2.imread(args.source_img)),
-        get_video_frame(args.target_path, frame_number)
-    )
-
-
-#def run():
-#    pre_check()
-#    limit_resources()
-#    if args.source_img:
-#        args.cli_mode = True
-#        start()
-#        quit()
-def pre_check():
-    # Add your pre-check logic here
-    pass
+def run():
+    pre_check()
+    limit_resources()
+    if args.source_img:
+        args.cli_mode = True
+        start()
+        quit()
 
     window = ui.init(
         {
